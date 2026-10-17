@@ -19,3 +19,17 @@ logs/
 # beside it.
 /.plugins/
 /.opencode-skills/
+
+# Python & backend
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+
+# Local data & uploads (strictly excluded from Git)
+data/
+*.db
+*.sqlite3
+backend/storage/
