@@ -1,0 +1,10 @@
+{
+  "description": "Organize and verify medical records with AI-powered checks to ensure data integrity, highlight care gaps, and generate consultation-ready health summaries.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
