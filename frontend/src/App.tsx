@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import { getRecords, createManualRecord } from "./api";
 import { useMemo, useRef, useState } from "react";
 
 type Page =
@@ -20,7 +22,7 @@ type RecordItem = {
   value: string;
   unit: string;
   range: string;
-  status: "Reviewed" | "Needs review" | "Verified";
+  status: string;
   source: string;
 };
 
@@ -171,20 +173,66 @@ function Overview({ setPage, openUpload }: { setPage: (p: Page) => void; openUpl
   </div>;
 }
 
-function MedicalRecords({ records, setRecords, openUpload }: { records: RecordItem[]; setRecords: (r: RecordItem[]) => void; openUpload: () => void }) {
+function MedicalRecords({ records, setRecords, recordsError, openUpload }: {
+  records: RecordItem[];
+  setRecords: React.Dispatch<React.SetStateAction<RecordItem[]>>;
+  recordsError: string;
+  openUpload: () => void;
+}) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("All statuses");
   const [manual, setManual] = useState(false);
   const visible = records.filter(r => `${r.name} ${r.lab} ${r.id}`.toLowerCase().includes(query.toLowerCase()) && (status === "All statuses" || r.status === status));
-  const addManual = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    setRecords([{ id: `SR-${1050 + records.length}`, name: String(fd.get("test")), date: "Today", lab: String(fd.get("lab")), value: String(fd.get("value")), unit: String(fd.get("unit")), range: "Not provided", status: "Reviewed", source: "Manual" }, ...records]);
+  
+const [saving, setSaving] = useState(false);
+const [manualError, setManualError] = useState("");
+
+const addManual = async (e: React.FormEvent<HTMLFormElement>) => {
+  e.preventDefault();
+
+  const form = e.currentTarget;
+  const fd = new FormData(form);
+
+  setSaving(true);
+  setManualError("");
+
+  try {
+    const created = await createManualRecord({
+      test: String(fd.get("test") ?? ""),
+      value: String(fd.get("value") ?? ""),
+      unit: String(fd.get("unit") ?? ""),
+      lab: String(fd.get("lab") ?? ""),
+    });
+
+    setRecords((previous) => [created, ...previous]);
     setManual(false);
-  };
+  } catch (error) {
+    setManualError(
+      error instanceof Error
+        ? error.message
+        : "Record save nahi ho paya."
+    );
+  } finally {
+    setSaving(false);
+  }
+};
+
   return <div className="page"><PageIntro title="Medical records" text="Search, review, and add reports while preserving their original source and correction history." actions={<><Button variant="secondary" onClick={() => setManual(true)} icon="plus">Enter manually</Button><Button onClick={openUpload} icon="upload">Upload report</Button></>}/>
-    <Card><div className="table-tools"><label className="search-field"><Icon name="search"/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search records, laboratories, report IDs…"/></label><select value={status} onChange={e => setStatus(e.target.value)}><option>All statuses</option><option>Reviewed</option><option>Needs review</option><option>Verified</option></select><select><option>Newest first</option><option>Oldest first</option></select><span className="result-count">{visible.length} records</span></div><RecordTable records={visible}/></Card>
-    {manual && <Modal title="Enter test information manually" onClose={() => setManual(false)}><form onSubmit={addManual} className="form-grid"><Field label="Test name" name="test" placeholder="e.g. Thyroid Stimulating Hormone" required/><Field label="Result value" name="value" placeholder="Enter value" required/><Field label="Unit" name="unit" placeholder="e.g. mIU/L" required/><Field label="Laboratory name" name="lab" placeholder="Issuing laboratory" required/><div className="modal-actions full"><Button variant="ghost" onClick={() => setManual(false)}>Cancel</Button><Button type="submit">Add confirmed record</Button></div></form></Modal>}
+    
+<Card>
+  {recordsError && (
+    <p style={{ color: "#dc2626", padding: "12px 16px" }}>
+      Failed to load records: {recordsError}
+    </p>
+  )}
+  <div className="table-tools">
+<label className="search-field"><Icon name="search"/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search records, laboratories, report IDs…"/></label><select value={status} onChange={e => setStatus(e.target.value)}><option>All statuses</option><option>Reviewed</option><option>Needs review</option><option>Verified</option></select><select><option>Newest first</option><option>Oldest first</option></select><span className="result-count">{visible.length} records</span></div><RecordTable records={visible}/></Card>
+    {manual && <Modal title="Enter test information manually" onClose={() => setManual(false)}><form onSubmit={addManual} className="form-grid">
+      {manualError && (
+  <p style={{ color: "#dc2626" }}>{manualError}</p>
+)}<Field label="Test name" name="test" placeholder="e.g. Thyroid Stimulating Hormone" required/><Field label="Result value" name="value" placeholder="Enter value" required/><Field label="Unit" name="unit" placeholder="e.g. mIU/L" required/><Field label="Laboratory name" name="lab" placeholder="Issuing laboratory" required/><div className="modal-actions full"><Button variant="ghost" onClick={() => setManual(false)}>Cancel</Button><Button type="submit" disabled={saving}>
+  {saving ? "Saving..." : "Add confirmed record"}
+</Button></div></form></Modal>}
   </div>;
 }
 
@@ -301,11 +349,36 @@ export default function App() {
   const [sidebarOpen,setSidebarOpen]=useState(false);
   const [collapsed,setCollapsed]=useState(false);
   const [upload,setUpload]=useState(false);
-  const [records,setRecords]=useState(initialRecords);
+  const [records, setRecords] = useState<RecordItem[]>([]);
+  const [recordsError, setRecordsError] = useState("");
+  useEffect(() => {
+  let active = true;
+
+  getRecords()
+    .then((data) => {
+      if (active) {
+        setRecords(data.records);
+        setRecordsError("");
+      }
+    })
+    .catch((error: unknown) => {
+      if (active) {
+        setRecordsError(
+          error instanceof Error
+            ? error.message
+            : "Failed to load medical records."
+        );
+      }
+    });
+
+  return () => {
+    active = false;
+  };
+}, []);
   const go=(p:Page)=>{setPage(p);setSidebarOpen(false);window.scrollTo({top:0,behavior:"smooth"})};
   const content=useMemo(()=>{
     if(page==="Overview")return <Overview setPage={go} openUpload={()=>setUpload(true)}/>;
-    if(page==="Medical Records")return <MedicalRecords records={records} setRecords={setRecords} openUpload={()=>setUpload(true)}/>;
+    if(page==="Medical Records")return <MedicalRecords records={records} setRecords={setRecords} recordsError={recordsError} openUpload={()=>setUpload(true)}/>;
     if(page==="Report Analysis")return <ReportAnalysis/>;
     if(page==="Integrity Checks")return <IntegrityChecks/>;
     if(page==="Laboratory Verification")return <VerificationPage/>;
@@ -314,6 +387,6 @@ export default function App() {
     if(page==="Consultation Summary")return <ConsultationSummary/>;
     if(page==="Audit Trail")return <AuditTrail/>;
     return <Settings/>;
-  },[page,records]);
+  }, [page, records, recordsError]);
   return <div className="app-shell"><Sidebar page={page} setPage={go} open={sidebarOpen} collapse={collapsed} setCollapse={setCollapsed}/><div className={`main-shell ${collapsed?"wide":""}`}><Header page={page} onMenu={()=>setSidebarOpen(!sidebarOpen)} onAdd={()=>setUpload(true)}/><main>{content}</main><footer className="trust-notice"><Icon name="shield" size={15}/><span>SehatSnap Integrity supports medical record quality and verification. It does not diagnose conditions, prescribe treatments, or replace professional medical judgment.</span></footer></div>{upload&&<UploadModal onClose={()=>setUpload(false)} onConfirm={r=>{setRecords([r,...records]);setPage("Medical Records")}}/>}</div>;
 }
