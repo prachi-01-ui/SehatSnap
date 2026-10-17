@@ -1,8 +1,13 @@
 frontend/node_modules/ 
 frontend/dist/ 
 
-# Python cache files
+# Python generated files
 __pycache__/
 *.py[cod]
-.pytest_cache/
 .venv/
+.pytest_cache/
+.ruff_cache/
+
+# Local data
+data/
+backend/storage/
