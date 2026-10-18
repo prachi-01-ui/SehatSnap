@@ -1,4 +1,4 @@
-﻿# SehatSnap ΓÇö Backend API Endpoint Specification & Integration Audit
+# SehatSnap ΓÇö Backend API Endpoint Specification & Integration Audit
 
 **Version:** 0.1.0 (Milestone 1 Baseline)
 **Base URL (Local Development):** `http://127.0.0.1:8000`
@@ -441,6 +441,137 @@ This document provides the authoritative API specification for frontend develope
 
 ---
 
+### Feature Group E: Clinical Verification & Verification Audit History
+
+#### 8. Laboratory Accreditation & Scope Verification
+* **Method:** `POST`
+* **Path:** `/api/v1/verify/laboratory`
+* **Purpose:** Validates laboratory identity, accreditation validity, and test-scope authorization against synthetic NABL directory records. Records hash-chained verification audit entry.
+* **Frontend Component:** `VerificationPage` (laboratory mode).
+* **Request Body:**
+  ```json
+  {
+    "laboratoryName": "Metropolis Healthcare Ltd.",
+    "city": "Pune",
+    "certificateNumber": "MC-2104",
+    "discipline": "Clinical Biochemistry",
+    "testName": "Lipid Profile",
+    "recordId": "SR-1048",
+    "simulateSourceFailure": false
+  }
+  ```
+* **Expected Response:** `200 OK`
+  Returns `matchConfidence`, `verdict`, `status`, `accreditationStatus`, `testScopeStatus`, `laboratory` details, structured `checks`, `verificationAuditId`, `sourceReference`, and `evidenceLimitations`.
+
+#### 9. Medicine Packaging & Regulatory Comparison
+* **Method:** `POST`
+* **Path:** `/api/v1/verify/medicine`
+* **Purpose:** Compares medicine packaging label details (brand, ingredient, strength, dosage form, manufacturer) against synthetic CDSCO/SUGAM regulatory records. Records hash-chained verification audit entry.
+* **Frontend Component:** `VerificationPage` (medicine mode).
+* **Request Body:**
+  ```json
+  {
+    "brandName": "Glycomet 500",
+    "activeIngredient": "Metformin Hydrochloride",
+    "strength": "500 mg",
+    "dosageForm": "Immediate-release uncoated tablet IP",
+    "manufacturer": "USV Private Limited"
+  }
+  ```
+* **Expected Response:** `200 OK`
+  Returns `matchConfidence`, `verdict`, `status`, `reviewBanner`, `product` details, structured `checks`, `verificationAuditId`, `sourceReference`, and non-prescribing safety `disclaimer`.
+
+#### 10. List Verification Audit Records
+* **Method:** `GET`
+* **Path:** `/api/v1/verify/audit-records`
+* **Purpose:** Retrieves paginated, filterable verification audit history with summary counts across verified, mismatch, inconclusive, and failed attempts.
+* **Query Parameters:**
+  | Parameter | Type | Required | Description |
+  | :--- | :--- | :--- | :--- |
+  | `entity_type` | string | No | Filter by `'laboratory'` or `'medicine'`. |
+  | `status` | string | No | Filter by `'verified'`, `'mismatch'`, `'inconclusive'`, `'not_verified'`, `'failed'`. |
+  | `check_type` | string | No | Filter by check type (`'accreditation_and_scope'`, `'composition_and_regulatory'`). |
+  | `source` | string | No | Filter by source authority substring. |
+  | `has_error` | boolean | No | Filter by presence of external source/retrieval error. |
+  | `query` | string | No | Free-text search on entity identifier, verdict, or ID. |
+  | `report_id` | string | No | Filter by linked report document ID. |
+  | `record_id` | string | No | Filter by linked medical record ID. |
+  | `sort` | string | No | Sort order: `'asc'` or `'desc'` (default: `'desc'`). |
+  | `limit` | integer | No | Maximum records to return (default: `20`, max: `100`). |
+  | `offset` | integer | No | Pagination offset (default: `0`). |
+* **Expected Response:** `200 OK`
+  ```json
+  {
+    "records": [
+      {
+        "id": "VAR-8821AF",
+        "patientId": "AN-PATIENT-01",
+        "entityType": "laboratory",
+        "entityIdentifier": "Metropolis Healthcare Ltd.",
+        "checkType": "accreditation_and_scope",
+        "source": "NABL directory demonstration snapshot",
+        "isDemoSource": true,
+        "status": "verified",
+        "verdict": "Verified Against Official Source",
+        "matchConfidence": 0.98,
+        "findings": {
+          "checks": [...],
+          "verdict": "Verified Against Official Source",
+          "matchConfidence": 0.98,
+          "accreditationStatus": "verified",
+          "testScopeStatus": "verified",
+          "matchedEntitySummary": "Metropolis Healthcare Ltd. (MC-2104)"
+        },
+        "errorDetails": {
+          "hasSourceError": false,
+          "errorCode": null,
+          "errorMessage": null,
+          "simulated": false
+        },
+        "reportId": null,
+        "recordId": null,
+        "timestampDisplay": "18 Oct 2026 · 08:30",
+        "timestampIso": "2026-10-18T03:00:00+00:00",
+        "recordHash": "d2e4...",
+        "previousRecordHash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "verificationStatus": "hash_linked"
+      }
+    ],
+    "total": 1,
+    "verifiedCount": 1,
+    "mismatchCount": 0,
+    "inconclusiveCount": 0,
+    "failedCount": 0,
+    "limit": 20,
+    "offset": 0
+  }
+  ```
+
+#### 11. Get Single Verification Audit Record
+* **Method:** `GET`
+* **Path:** `/api/v1/verify/audit-records/{audit_id}`
+* **Purpose:** Retrieves full structured audit record by its `VAR-` ID. Returns `404 Not Found` if missing.
+
+#### 12. Cryptographic Chain Integrity Verification
+* **Method:** `GET`
+* **Path:** `/api/v1/verify/audit-records/chain/verify`
+* **Purpose:** Sequentially validates SHA-256 hash chaining across all recorded verification attempts from genesis. Identifies any manual record tampering, modification, or sequence corruption.
+* **Expected Response:** `200 OK`
+  ```json
+  {
+    "chainValid": true,
+    "totalRecordsEvaluated": 12,
+    "genesisHash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "latestHash": "e4f8...",
+    "tamperedRecordId": null,
+    "tamperedIndex": null,
+    "storageProtection": "Cryptographic SHA-256 hash-chaining stored in local SQLite database. Provides deterministic tamper-evidence against record alteration; does not claim decentralized consensus or hardware WORM immutability.",
+    "message": "All 12 verification audit record(s) cryptographically validated. No tampering, truncation, or sequence anomalies detected."
+  }
+  ```
+
+---
+
 ## 3. Frontend-to-Backend Feature Audit & Status Matrix
 
 Every SehatSnap feature group from the product specification is audited below:
@@ -454,9 +585,9 @@ Every SehatSnap feature group from the product specification is audited below:
 | **5** | **Report analysis, trends & charts** | `ReportAnalysis` (`TrendChart`, analyte selector) | *None in M1* (Stores numeric value for plotting) | **Frontend present but backend missing** |
 | **6** | **EHR optimisation & metadata quality** | `ReportAnalysis` ("Comparison readiness" card, unit checks) | *None in M1* | **Frontend present but backend missing** |
 | **7** | **Diagnostic integrity & duplicate detection** | `IntegrityChecks` (findings table, evidence drawer) & `AuditTrail` | `POST /api/v1/reports/upload` (duplicate hash check active); `audit_events` table schema active | **Partially implemented** (Upload duplicate detection & audit ledger models active; `/integrity/findings` endpoints pending M2) |
-| **8** | **Laboratory accreditation verification** | `VerificationPage` (lab mode, NABL demo snapshot) | *None in M1* | **Frontend present but backend missing** |
-| **9** | **Medicine verification & formulation check** | `VerificationPage` (medicine mode, CDSCO demo snapshot) | *None in M1* | **Frontend present but backend missing** |
-| **10** | **Care-gap early warnings** | `CareGaps` (care task list, actions, add task modal) | *None in M1* | **Frontend present but backend missing** |
+| **8** | **Laboratory accreditation verification** | `VerificationPage` (lab mode, NABL demo snapshot) | `POST /api/v1/verify/laboratory`<br/>`GET /api/v1/verify/laboratory/demo-labs` | **Operational** (with hash-chained audit history) |
+| **9** | **Medicine verification & formulation check** | `VerificationPage` (medicine mode, CDSCO demo snapshot) | `POST /api/v1/verify/medicine`<br/>`GET /api/v1/verify/medicine/demo-medicines` | **Operational** (with hash-chained audit history) |
+| **10** | **Care-gap early warnings & follow-ups** | `CareGaps` (care task list, actions, add task modal) | `GET /api/v1/care-tasks`<br/>`POST /api/v1/care-tasks`<br/>`POST /api/v1/care-tasks/from-verification` | **Operational** (with clinical safety guardrails) |
 | **11** | **Mental wellbeing survey & trends** | *Not present in active 10 screens* | *None in M1* | **Not yet implemented** (Planned feature) |
 | **12** | **Settings & user preferences** | `Settings` (preferences toggles, retention links) | *None in M1* | **Frontend present but backend missing** |
 | **13** | **Appointments & reminders** | Header notifications popover & Care plan due dates | *None in M1* | **Partially implemented** (Frontend UI hints; dedicated backend endpoints missing) |

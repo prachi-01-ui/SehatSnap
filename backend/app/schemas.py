@@ -152,6 +152,7 @@ class LabVerificationResponse(BaseModel):
     evidenceLimitations: str
     timestamp: str
     auditEventId: Optional[str] = None
+    verificationAuditId: Optional[str] = None
 
 
 # --- Medicine Verification ---
@@ -206,6 +207,7 @@ class MedicineVerificationResponse(BaseModel):
     evidenceLimitations: str
     timestamp: str
     auditEventId: Optional[str] = None
+    verificationAuditId: Optional[str] = None
     disclaimer: str = (
         "SehatSnap does not prescribe, recommend medicines, diagnose conditions, or alter prescriptions. "
         "This service verifies product label metadata against demonstration regulatory records only. "
@@ -299,6 +301,76 @@ class TaskFromVerificationRequest(BaseModel):
     due: Optional[str] = Field(None, description="Optional due date for follow-up")
     priority: Optional[str] = Field("high", description="Priority level ('high', 'normal', 'low')")
     customNotes: Optional[str] = Field(None, max_length=512, description="Optional supplementary follow-up instructions")
+
+
+# --- Verification Audit History ---
+class VerificationAuditCheckItem(BaseModel):
+    item: str
+    details: str
+    status: str
+
+class VerificationAuditFindings(BaseModel):
+    checks: List[VerificationAuditCheckItem] = Field(default_factory=list)
+    verdict: str
+    matchConfidence: float
+    accreditationStatus: Optional[str] = None
+    testScopeStatus: Optional[str] = None
+    reviewBanner: Optional[str] = None
+    evidenceLimitations: Optional[str] = None
+    matchedEntitySummary: Optional[str] = None
+
+class VerificationAuditErrorDetails(BaseModel):
+    hasSourceError: bool = False
+    errorCode: Optional[str] = None
+    errorMessage: Optional[str] = None
+    simulated: bool = False
+
+class VerificationAuditRecordResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: str
+    patientId: str
+    entityType: str  # "laboratory" | "medicine"
+    entityIdentifier: Optional[str] = None
+    checkType: str
+    source: str
+    isDemoSource: bool = True
+    status: str  # "verified" | "mismatch" | "inconclusive" | "not_verified" | "failed"
+    verdict: str
+    matchConfidence: float
+    findings: VerificationAuditFindings
+    errorDetails: VerificationAuditErrorDetails
+    reportId: Optional[str] = None
+    recordId: Optional[str] = None
+    labLogId: Optional[str] = None
+    medicineLogId: Optional[str] = None
+    auditEventId: Optional[str] = None
+    timestampDisplay: str
+    timestampIso: str
+    recordHash: str
+    previousRecordHash: Optional[str] = None
+    verificationStatus: str = "hash_linked"
+
+class VerificationAuditListResponse(BaseModel):
+    records: List[VerificationAuditRecordResponse]
+    total: int
+    verifiedCount: int
+    mismatchCount: int
+    inconclusiveCount: int
+    failedCount: int
+    limit: int = 20
+    offset: int = 0
+
+class AuditChainIntegrityResponse(BaseModel):
+    chainValid: bool
+    totalRecordsEvaluated: int
+    genesisHash: str
+    latestHash: Optional[str] = None
+    tamperedRecordId: Optional[str] = None
+    tamperedIndex: Optional[int] = None
+    storageProtection: str
+    message: str
+
 
 
 

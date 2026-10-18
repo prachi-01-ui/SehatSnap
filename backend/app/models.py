@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Index
+from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Index, Boolean, Text
 from sqlalchemy.orm import relationship
 from backend.app.database import Base
 
@@ -175,6 +175,65 @@ class CareTask(Base):
         Index("idx_care_tasks_patient_status", "patient_id", "status"),
         Index("idx_care_tasks_due", "due_date"),
     )
+
+
+class VerificationAuditRecord(Base):
+    """
+    Cryptographically hash-linked audit record for laboratory and medicine verification attempts.
+    Provides local tamper-evidence by chaining SHA-256 hashes of sequential verification checks.
+    """
+    __tablename__ = "verification_audit_records"
+
+    id = Column(String(64), primary_key=True)  # e.g., "VAR-8821A"
+    patient_id = Column(String(64), nullable=False, default="AN-PATIENT-01")
+    entity_type = Column(String(32), nullable=False)  # "laboratory" | "medicine"
+    entity_identifier = Column(String(255), nullable=True)  # e.g. lab name, certificate, or brand
+    check_type = Column(String(64), nullable=False)  # "accreditation_and_scope" | "composition_and_regulatory"
+
+    source = Column(String(255), nullable=False)  # e.g., "NABL directory demonstration snapshot"
+    is_demo_source = Column(String(8), nullable=False, default="true")
+
+    status = Column(String(32), nullable=False)  # "verified" | "mismatch" | "inconclusive" | "not_verified" | "failed"
+    verdict = Column(String(255), nullable=False)
+    match_confidence = Column(Float, nullable=False, default=0.0)
+
+    # Detailed payloads stored as JSON text
+    input_payload = Column(Text, nullable=False)
+    findings = Column(Text, nullable=False)
+
+    # Error tracking
+    has_source_error = Column(Boolean, nullable=False, default=False)
+    source_error_details = Column(Text, nullable=True)
+
+    # Associated entities
+    report_document_id = Column(String(64), ForeignKey("report_documents.id", ondelete="SET NULL"), nullable=True)
+    medical_record_id = Column(String(64), ForeignKey("medical_records.id", ondelete="SET NULL"), nullable=True)
+    lab_log_id = Column(String(64), ForeignKey("lab_verification_logs.id", ondelete="SET NULL"), nullable=True)
+    medicine_log_id = Column(String(64), ForeignKey("medicine_verification_logs.id", ondelete="SET NULL"), nullable=True)
+    audit_event_id = Column(String(64), ForeignKey("audit_events.id", ondelete="SET NULL"), nullable=True)
+
+    # Tamper-evident cryptographic hash chain
+    previous_record_hash = Column(String(64), nullable=True)
+    record_hash = Column(String(64), nullable=False)
+    verification_status = Column(String(32), nullable=False, default="hash_linked")
+
+    timestamp_display = Column(String(64), nullable=False)
+    timestamp_iso = Column(String(64), nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+
+    document = relationship("ReportDocument", foreign_keys=[report_document_id])
+    record = relationship("MedicalRecord", foreign_keys=[medical_record_id])
+    lab_log = relationship("LabVerificationLog", foreign_keys=[lab_log_id])
+    medicine_log = relationship("MedicineVerificationLog", foreign_keys=[medicine_log_id])
+    audit_event = relationship("AuditEvent", foreign_keys=[audit_event_id])
+
+    __table_args__ = (
+        Index("idx_var_entity_status", "entity_type", "status"),
+        Index("idx_var_created_at", "created_at"),
+        Index("idx_var_patient_id", "patient_id"),
+        Index("idx_var_record_hash", "record_hash"),
+    )
+
 
 
 

@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 from starlette.testclient import TestClient
 
 from backend.app.database import Base, get_db
-from backend.app.models import MedicalRecord, ReportDocument, AuditEvent, CareTask
+from backend.app.models import MedicalRecord, ReportDocument, AuditEvent, CareTask, VerificationAuditRecord
 from backend.app.seed import seed_database
 from backend.app.main import app
 import backend.app.storage as storage_module

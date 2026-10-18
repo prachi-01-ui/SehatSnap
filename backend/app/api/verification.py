@@ -11,6 +11,7 @@ from backend.app.models import (
     AuditEvent,
     MedicalRecord,
     ReportDocument,
+    VerificationAuditRecord,
 )
 from backend.app.schemas import (
     LabVerificationRequest,
@@ -19,6 +20,9 @@ from backend.app.schemas import (
     MedicineVerificationRequest,
     MedicineVerificationResponse,
     VerifiedMedicineProduct,
+    VerificationAuditRecordResponse,
+    VerificationAuditListResponse,
+    AuditChainIntegrityResponse,
 )
 from backend.app.services.lab_verification import (
     verify_laboratory_identity_and_scope,
@@ -27,6 +31,11 @@ from backend.app.services.lab_verification import (
 from backend.app.services.medicine_verification import (
     verify_medicine_identity_and_composition,
     SYNTHETIC_SUGAM_REGISTRY,
+)
+from backend.app.services.verification_audit_service import (
+    record_verification_audit,
+    to_audit_record_response,
+    verify_verification_audit_chain,
 )
 
 router = APIRouter(prefix="/verify", tags=["Verification"])
@@ -114,8 +123,69 @@ def verify_laboratory(
         created_at=now_utc,
     )
     db.add(verification_log)
+
+    # Record in tamper-evident VerificationAuditRecord
+    findings_dict = {
+        "checks": [c.model_dump() if hasattr(c, "model_dump") else c.dict() for c in result.checks],
+        "accreditationStatus": result.accreditationStatus,
+        "testScopeStatus": result.testScopeStatus,
+        "evidenceLimitations": result.evidenceLimitations,
+        "matchedEntitySummary": (
+            f"{result.laboratory.name} ({result.laboratory.certificateNumber})"
+            if result.laboratory
+            else None
+        ),
+    }
+    input_dict = {
+        "laboratoryName": payload.laboratoryName,
+        "city": payload.city,
+        "certificateNumber": payload.certificateNumber,
+        "discipline": payload.discipline,
+        "testName": payload.testName,
+        "reportId": payload.reportId,
+        "recordId": payload.recordId,
+        "simulateSourceFailure": payload.simulateSourceFailure,
+    }
+
+    has_source_error = bool(payload.simulateSourceFailure)
+    source_error_details = (
+        {
+            "code": "SOURCE_UNAVAILABLE",
+            "message": "Connection to demonstration accreditation registry timed out or failed",
+            "simulated": True,
+        }
+        if has_source_error
+        else None
+    )
+
+    entity_identifier = (
+        payload.certificateNumber
+        or payload.laboratoryName
+        or (result.laboratory.name if result.laboratory else None)
+    )
+
+    audit_rec = record_verification_audit(
+        db=db,
+        entity_type="laboratory",
+        check_type="accreditation_and_scope",
+        entity_identifier=entity_identifier,
+        source=result.sourceReference.authority,
+        status=result.status,
+        verdict=result.verdict,
+        match_confidence=result.matchConfidence,
+        findings_dict=findings_dict,
+        input_dict=input_dict,
+        has_source_error=has_source_error,
+        source_error_details=source_error_details,
+        report_document_id=target_doc_id,
+        medical_record_id=target_record_id,
+        lab_log_id=log_id,
+        audit_event_id=audit_event_id,
+        now_utc=now_utc,
+    )
     db.commit()
 
+    result.verificationAuditId = audit_rec.id
     if audit_event_id:
         result.auditEventId = audit_event_id
 
@@ -213,8 +283,69 @@ def verify_medicine(
         created_at=now_utc,
     )
     db.add(medicine_log)
+
+    # Record in tamper-evident VerificationAuditRecord
+    findings_dict = {
+        "checks": [c.model_dump() if hasattr(c, "model_dump") else c.dict() for c in result.checks],
+        "reviewBanner": result.reviewBanner,
+        "evidenceLimitations": result.evidenceLimitations,
+        "matchedEntitySummary": (
+            f"{result.product.brand} - {result.product.activeIngredient} ({result.product.strength})"
+            if result.product
+            else None
+        ),
+    }
+    input_dict = {
+        "brandName": payload.brandName,
+        "activeIngredient": payload.activeIngredient,
+        "strength": payload.strength,
+        "dosageForm": payload.dosageForm,
+        "manufacturer": payload.manufacturer,
+        "route": payload.route,
+        "reportId": payload.reportId,
+        "recordId": payload.recordId,
+        "simulateSourceFailure": payload.simulateSourceFailure,
+    }
+
+    has_source_error = bool(payload.simulateSourceFailure)
+    source_error_details = (
+        {
+            "code": "SOURCE_UNAVAILABLE",
+            "message": "Connection to demonstration regulatory catalogue timed out or failed",
+            "simulated": True,
+        }
+        if has_source_error
+        else None
+    )
+
+    entity_identifier = (
+        payload.brandName
+        or payload.activeIngredient
+        or (result.product.brand if result.product else None)
+    )
+
+    audit_rec = record_verification_audit(
+        db=db,
+        entity_type="medicine",
+        check_type="composition_and_regulatory",
+        entity_identifier=entity_identifier,
+        source=result.sourceReference.authority,
+        status=result.status,
+        verdict=result.verdict,
+        match_confidence=result.matchConfidence,
+        findings_dict=findings_dict,
+        input_dict=input_dict,
+        has_source_error=has_source_error,
+        source_error_details=source_error_details,
+        report_document_id=target_doc_id,
+        medical_record_id=target_record_id,
+        medicine_log_id=log_id,
+        audit_event_id=audit_event_id,
+        now_utc=now_utc,
+    )
     db.commit()
 
+    result.verificationAuditId = audit_rec.id
     if audit_event_id:
         result.auditEventId = audit_event_id
 
@@ -238,4 +369,105 @@ def list_demo_medicines():
         )
         for entry in SYNTHETIC_SUGAM_REGISTRY
     ]
+
+
+@router.get("/audit-records/chain/verify", response_model=AuditChainIntegrityResponse)
+def check_audit_chain_integrity(db: Session = Depends(get_db)):
+    """
+    Validates cryptographic integrity of the verification audit history chain.
+    Sequentially recomputes SHA-256 hashes from genesis forward, detecting any alteration or truncation.
+    """
+    return verify_verification_audit_chain(db)
+
+
+@router.get("/audit-records", response_model=VerificationAuditListResponse)
+def list_verification_audit_records(
+    entity_type: Optional[str] = Query(None, description="Filter by entity type ('laboratory' or 'medicine')"),
+    status: Optional[str] = Query(None, description="Filter by verification status ('verified', 'mismatch', 'inconclusive', 'not_verified', 'failed')"),
+    check_type: Optional[str] = Query(None, description="Filter by check type"),
+    source: Optional[str] = Query(None, description="Filter by source authority substring"),
+    has_error: Optional[bool] = Query(None, description="Filter by presence of source error"),
+    query: Optional[str] = Query(None, description="Free-text search across entity identifier, verdict, or ID"),
+    report_id: Optional[str] = Query(None, description="Filter by linked report document ID"),
+    record_id: Optional[str] = Query(None, description="Filter by linked medical record ID"),
+    sort: str = Query("desc", description="Sort order by creation time: 'asc' or 'desc'"),
+    limit: int = Query(20, ge=1, le=100, description="Number of records to return"),
+    offset: int = Query(0, ge=0, description="Offset for pagination"),
+    db: Session = Depends(get_db),
+):
+    """
+    Retrieves verification audit records with filtering and pagination.
+    """
+    if sort.lower() not in ["asc", "desc"]:
+        raise HTTPException(status_code=400, detail="Invalid sort parameter. Use 'asc' or 'desc'.")
+
+    q = db.query(VerificationAuditRecord)
+
+    if entity_type:
+        q = q.filter(VerificationAuditRecord.entity_type == entity_type.lower())
+    if status:
+        q = q.filter(VerificationAuditRecord.status == status.lower())
+    if check_type:
+        q = q.filter(VerificationAuditRecord.check_type == check_type)
+    if source:
+        q = q.filter(VerificationAuditRecord.source.ilike(f"%{source}%"))
+    if has_error is not None:
+        q = q.filter(VerificationAuditRecord.has_source_error == has_error)
+    if report_id:
+        q = q.filter(VerificationAuditRecord.report_document_id == report_id)
+    if record_id:
+        q = q.filter(VerificationAuditRecord.medical_record_id == record_id)
+    if query:
+        search_term = f"%{query}%"
+        q = q.filter(
+            (VerificationAuditRecord.id.ilike(search_term))
+            | (VerificationAuditRecord.entity_identifier.ilike(search_term))
+            | (VerificationAuditRecord.verdict.ilike(search_term))
+        )
+
+    total = q.count()
+    verified_count = q.filter(VerificationAuditRecord.status == "verified").count()
+    mismatch_count = q.filter(VerificationAuditRecord.status == "mismatch").count()
+    inconclusive_count = q.filter(VerificationAuditRecord.status == "inconclusive").count()
+    failed_count = q.filter(VerificationAuditRecord.status.in_(["not_verified", "failed"])).count()
+
+    if sort.lower() == "asc":
+        q = q.order_by(VerificationAuditRecord.created_at.asc(), VerificationAuditRecord.id.asc())
+    else:
+        q = q.order_by(VerificationAuditRecord.created_at.desc(), VerificationAuditRecord.id.desc())
+
+    records = q.offset(offset).limit(limit).all()
+
+    return VerificationAuditListResponse(
+        records=[to_audit_record_response(r) for r in records],
+        total=total,
+        verifiedCount=verified_count,
+        mismatchCount=mismatch_count,
+        inconclusiveCount=inconclusive_count,
+        failedCount=failed_count,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/audit-records/{audit_id}", response_model=VerificationAuditRecordResponse)
+def get_verification_audit_record(
+    audit_id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Retrieves full details of a single verification audit record by ID.
+    """
+    record = (
+        db.query(VerificationAuditRecord)
+        .filter(VerificationAuditRecord.id == audit_id)
+        .first()
+    )
+    if not record:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Verification audit record '{audit_id}' not found",
+        )
+    return to_audit_record_response(record)
+
 

@@ -103,7 +103,16 @@ This module implements the **Laboratory and Medicine Verification** services for
 - `GET /api/v1/verify/laboratory/demo-labs`: Lists synthetic NABL demo laboratories.
 - `GET /api/v1/verify/medicine/demo-medicines`: Lists synthetic CDSCO/SUGAM demo medicines.
 
-### 4. Care-Task & Follow-Up Endpoints
+### 4. Verification Audit History & Cryptographic Chain Module
+- **Tamper-Evident SHA-256 Hash Chaining**: Every actual laboratory and medicine verification check generates a `VerificationAuditRecord` cryptographically linked to the preceding record's SHA-256 digest (or `0`*64 genesis).
+- **Accurate Capture of Failures & Inconclusive Checks**: When external source failures or incomplete query parameters occur, they are recorded as structured audit events (`has_source_error=True`, error details, code, and status) rather than omitted.
+- **Storage Protection Disclosure**: The system truthfully discloses its cryptographic protections: SHA-256 hash chaining stored in local SQLite provides deterministic tamper-evidence against record alteration and truncation, without falsely claiming hardware WORM immutability or decentralized consensus.
+- **Audit Endpoints**:
+  - `GET /api/v1/verify/audit-records`: Retrieves paginated verification audit logs with filters (`entity_type`, `status`, `check_type`, `source`, `has_error`, `query`, `report_id`, `record_id`, `sort`, `limit`, `offset`).
+  - `GET /api/v1/verify/audit-records/{audit_id}`: Full detail of an audit record by its `VAR-` ID.
+  - `GET /api/v1/verify/audit-records/chain/verify`: Cryptographic verification suite that sequentially validates all record hashes and identifies any tampered record ID and position.
+
+### 5. Care-Task & Follow-Up Endpoints
 - **List Care Tasks**: `GET /api/v1/care-tasks` (supports `status`, `priority`, `task_type`, `record_id`, `report_id`, `query`, and `sort` query parameters).
 - **Create Care Task**: `POST /api/v1/care-tasks` (enforces clinical safety validation, optional due dates, and entity linkage).
 - **Get Care Task Detail**: `GET /api/v1/care-tasks/{task_id}`
@@ -124,13 +133,16 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1   # On Windows PowerShell
 
 # Install dependencies
-pip install "fastapi>=0.115.0" "pydantic>=2.0" "uvicorn[standard]" "sqlalchemy>=2.0" "aiofiles" "python-multipart" "pytest>=8.0" "pytest-asyncio" "httpx"
+pip install "fastapi>=0.115.0" "pydantic>=2.0" "uvicorn[standard]" "sqlalchemy>=2.0" "aiofiles" "python-multipart" "pytest>=8.0" "pytest-asyncio" "httpx" "pymupdf" "pillow" "pytesseract"
 ```
 
 ### Running Tests
 ```bash
-# Run all backend unit and API tests (83 tests)
+# Run all backend unit and API tests (98 tests)
 .\.venv\Scripts\pytest.exe -v
+
+# Run verification audit and tamper-evidence tests (14 tests)
+.\.venv\Scripts\pytest.exe -v backend/tests/test_verification_audit.py
 
 # Run care-task and follow-up tests (16 tests)
 .\.venv\Scripts\pytest.exe -v backend/tests/test_care_tasks.py
