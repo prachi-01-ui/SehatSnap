@@ -1,7 +1,7 @@
 import shutil
 from io import BytesIO
 
-import fitz
+import pymupdf
 import pytesseract
 from PIL import Image
 from pypdf import PdfReader
@@ -25,7 +25,7 @@ def extract_text_from_pdf(content: bytes) -> str:
             continue
 
         # Fall back to OCR for scanned pages.
-        with fitz.open(stream=content, filetype="pdf") as pdf:
+        with pymupdf.open(stream=content, filetype="pdf") as pdf:
             pdf_page = pdf.load_page(page_number)
             pixmap = pdf_page.get_pixmap(dpi=200)
             image = Image.open(BytesIO(pixmap.tobytes("png")))
