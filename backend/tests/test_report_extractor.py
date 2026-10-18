@@ -22,19 +22,75 @@ def test_extract_text_from_pdf():
     assert "Report: Normal" in result
 
 
-def test_pdf_without_extractable_text_raises_error():
+def test_scanned_pdf_uses_ocr():
     mock_page = MagicMock()
     mock_page.extract_text.return_value = ""
 
     mock_reader = MagicMock()
     mock_reader.pages = [mock_page]
 
-    with patch(
-        "backend.app.services.report_extractor.PdfReader",
-        return_value=mock_reader,
+    with (
+        patch(
+            "backend.app.services.report_extractor.PdfReader",
+            return_value=mock_reader,
+        ),
+        patch(
+            "backend.app.services.report_extractor.fitz.open"
+        ) as mock_fitz_open,
+        patch(
+            "backend.app.services.report_extractor.Image.open"
+        ) as mock_image_open,
+        patch(
+            "backend.app.services.report_extractor.pytesseract.image_to_string",
+            return_value="Patient Name: Demo",
+        ) as mock_ocr,
     ):
-        with pytest.raises(ValueError, match="OCR"):
-            extract_text_from_pdf(b"%PDF-test")
+        mock_pdf = MagicMock()
+        mock_fitz_open.return_value.__enter__.return_value = mock_pdf
+        mock_pdf_page = MagicMock()
+        mock_pdf.load_page.return_value = mock_pdf_page
+        mock_pixmap = MagicMock()
+        mock_pdf_page.get_pixmap.return_value = mock_pixmap
+        mock_pixmap.tobytes.return_value = b"fake-image"
+        mock_image_open.return_value = MagicMock()
+
+        result = extract_text_from_pdf(b"%PDF-test")
+
+    assert "Patient Name: Demo" in result
+    mock_ocr.assert_called_once()
+
+
+def test_pdf_without_extractable_text_or_ocr_raises_error():
+    mock_page = MagicMock()
+    mock_page.extract_text.return_value = ""
+
+    mock_reader = MagicMock()
+    mock_reader.pages = [mock_page]
+
+    with (
+        patch(
+            "backend.app.services.report_extractor.PdfReader",
+            return_value=mock_reader,
+        ),
+        patch(
+            "backend.app.services.report_extractor.fitz.open"
+        ) as mock_fitz_open,
+        patch(
+            "backend.app.services.report_extractor.pytesseract.image_to_string",
+            return_value="   ",
+        ),
+    ):
+        mock_pdf = MagicMock()
+        mock_fitz_open.return_value.__enter__.return_value = mock_pdf
+        mock_pdf_page = MagicMock()
+        mock_pdf.load_page.return_value = mock_pdf_page
+        mock_pdf_page.get_pixmap.return_value.tobytes.return_value = b"fake-image"
+
+        with patch(
+            "backend.app.services.report_extractor.Image.open"
+        ):
+            with pytest.raises(ValueError, match="OCR"):
+                extract_text_from_pdf(b"%PDF-test")
 
 
 def test_invalid_pdf_raises_error():
@@ -45,4 +101,3 @@ def test_invalid_pdf_raises_error():
 def test_empty_pdf_bytes_raises_error():
     with pytest.raises(Exception):
         extract_text_from_pdf(b"")
-

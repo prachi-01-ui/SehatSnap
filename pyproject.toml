@@ -5,8 +5,11 @@ requires-python = ">=3.14"
 dependencies = [
     "aiofiles>=25.1.0",
     "fastapi>=0.143.3",
+    "pillow>=13.0.0",
     "pydantic>=2.14.1",
+    "pymupdf>=1.28.2",
     "pypdf>=6.21.1",
+    "pytesseract>=0.3.13",
     "python-multipart>=0.0.32",
     "sqlalchemy>=2.1.5",
     "uvicorn[standard]>=0.54.0",
