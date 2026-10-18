@@ -1,6 +1,13 @@
 import uuid
 import datetime
+import re
+from io import BytesIO
+
+from pypdf import PdfReader
+from backend.app.services.report_extractor import extract_text_from_pdf
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from pathlib import Path
+from backend.app.config import UPLOADS_DIR
 from sqlalchemy.orm import Session
 from backend.app.database import get_db
 from backend.app.models import ReportDocument, MedicalRecord, AuditEvent
@@ -32,9 +39,24 @@ async def upload_report(
     """
     stored_filename, rel_path, file_size, sha256_hash = await process_and_save_upload(file)
 
-    # Check for existing report with identical SHA-256 hash
-    existing_doc = db.query(ReportDocument).filter(ReportDocument.sha256_hash == sha256_hash).first()
+    
+    # Check for an existing report with an identical SHA-256 hash.
+    existing_doc = (
+        db.query(ReportDocument)
+        .filter(ReportDocument.sha256_hash == sha256_hash)
+        .first()
+    )
+
     if existing_doc:
+        # Delete the newly saved duplicate file to avoid unnecessary storage.
+        duplicate_path = UPLOADS_DIR / stored_filename
+
+        try:
+            duplicate_path.unlink(missing_ok=True)
+        except OSError:
+            # Preserve the existing report response if cleanup fails.
+            pass
+
         return ReportUploadResponse(
             reportId=existing_doc.id,
             originalFilename=existing_doc.original_filename,
@@ -45,8 +67,12 @@ async def upload_report(
             uploadedAt=existing_doc.created_at.strftime("%d %b %Y · %H:%M"),
             isDuplicate=True,
             existingReportId=existing_doc.id,
-            integrityNotice="A report with an identical SHA-256 hash was previously uploaded. Duplicate hashes indicate file identity; they do not imply fraud.",
+            integrityNotice=(
+                "A report with an identical SHA-256 hash was previously uploaded. "
+                "Duplicate hashes indicate file identity; they do not imply fraud."
+            ),
         )
+
 
     # Generate document identifier
     doc_id = f"REP-{uuid.uuid4().hex[:6].upper()}"
@@ -98,102 +124,139 @@ async def upload_report(
         integrityNotice="File validated and SHA-256 hash recorded in audit log.",
     )
 
+
 @router.post("/{report_id}/extract", response_model=ExtractionResponse)
 def extract_report_fields(
     report_id: str,
     db: Session = Depends(get_db),
 ):
-    """
-    Simulated document extraction endpoint for Milestone 1.
-    Explicitly labeled as prototype simulation; does not claim real OCR.
-    Real OCR pipeline will be plugged in subsequent milestones.
-    """
-    doc = db.query(ReportDocument).filter(ReportDocument.id == report_id).first()
+    """Extract real text from an uploaded PDF and identify labelled metadata."""
+    doc = (
+        db.query(ReportDocument)
+        .filter(ReportDocument.id == report_id)
+        .first()
+    )
+
     if not doc:
-        raise HTTPException(status_code=404, detail=f"Report document '{report_id}' not found")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Report document '{report_id}' not found",
+        )
+
+    # The current extraction service supports PDF files only.
+    if Path(doc.original_filename).suffix.lower() != ".pdf":
+        raise HTTPException(
+            status_code=415,
+            detail="Text extraction currently supports PDF reports only.",
+        )
+
+    # Resolve the stored file safely within the uploads directory.
+    uploads_root = UPLOADS_DIR.resolve()
+    file_path = (uploads_root / doc.stored_filename).resolve()
+
+    if file_path.parent != uploads_root or not file_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="The stored report file could not be found.",
+        )
+
+    try:
+        content = file_path.read_bytes()
+        reader = PdfReader(BytesIO(content))
+
+        if reader.is_encrypted:
+            raise HTTPException(
+                status_code=422,
+                detail="Encrypted PDFs are not supported for extraction.",
+            )
+
+        page_count = len(reader.pages)
+        extracted_text = extract_text_from_pdf(content)
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Could not extract text from this PDF: {exc}",
+        ) from exc
+
+    # Extract only explicitly labelled metadata. Do not invent missing values.
+    def find_value(pattern: str) -> str:
+        match = re.search(
+            pattern,
+            extracted_text,
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
+        return match.group(1).strip() if match else ""
+
+    lab = find_value(
+        r"^(?:laboratory|lab(?:oratory)?\s+name|lab\s+name)\s*[:\-]\s*(.+)$"
+    )
+    report_id_value = find_value(
+        r"^(?:report\s*(?:id|no\.?|number)|accession\s*(?:no\.?|number))"
+        r"\s*[:#\-]\s*([A-Z0-9][A-Z0-9/_\-]*)"
+    )
+    report_date = find_value(
+        r"^(?:report\s*date|date\s*of\s*report)\s*[:\-]\s*(.+)$"
+    )
+    collection_date = find_value(
+        r"^(?:collection\s*date|sample\s*date|specimen\s*date|"
+        r"date\s*of\s*collection)\s*[:\-]\s*(.+)$"
+    )
+
+    # These fields require explicit labelled matches. Result-table parsing
+    # will be added separately to avoid guessing which number is a test result.
+    field_definitions = [
+        ("test", "Test name", "", "Result table"),
+        ("value", "Result value", "", "Result table"),
+        ("unit", "Unit", "", "Result table"),
+        ("range", "Reference range", "", "Result table"),
+        ("date", "Collection date", collection_date, "Labelled metadata"),
+        ("reportDate", "Report date", report_date, "Labelled metadata"),
+        ("lab", "Laboratory name", lab, "Labelled metadata"),
+        ("reportId", "Report ID", report_id_value, "Labelled metadata"),
+    ]
+
+    extracted_fields = [
+        ExtractedField(
+            fieldKey=key,
+            label=label,
+            value=value,
+            confidence=0.5 if value else 0.0,
+            method="PDF text/OCR" if value else "Not detected",
+            provenance=ExtractedFieldProvenance(
+                page=1,
+                region=region,
+            ),
+        )
+        for key, label, value, region in field_definitions
+    ]
 
     doc.status = "EXTRACTED"
-    doc.ocr_confidence = 0.94
+    # This is a placeholder until a calibrated extraction-quality metric exists.
+    doc.ocr_confidence = None
     db.commit()
 
     return ExtractionResponse(
         reportId=doc.id,
         status="EXTRACTED",
-        simulationNotice="OCR and PDF parsing are simulated in this milestone for client review. Actual OCR model integration is planned for subsequent milestones. All extracted values require explicit human confirmation.",
-        documentSummary=DocumentSummary(
-            pageCount=1,
-            detectedLaboratory="Aster Diagnostics, Pune",
-            detectedReportId="LAB-8821",
-            detectedDate="18 Oct 2025",
-            ocrQualityScore=0.94,
+        simulationNotice=(
+            "Real PDF text extraction/OCR was performed. Labelled metadata "
+            "is detected using basic rules; test results are not yet parsed "
+            "automatically. Blank fields were not detected. All values require "
+            "human confirmation."
         ),
-        extractedFields=[
-            ExtractedField(
-                fieldKey="test",
-                label="Test name",
-                value="Fasting Plasma Glucose",
-                confidence=0.98,
-                method="PDF Extracted",
-                provenance=ExtractedFieldProvenance(page=1, region="Results table, row 3"),
-            ),
-            ExtractedField(
-                fieldKey="value",
-                label="Result value",
-                value="102",
-                confidence=0.96,
-                method="PDF Extracted",
-                provenance=ExtractedFieldProvenance(page=1, region="Results table, row 3"),
-            ),
-            ExtractedField(
-                fieldKey="unit",
-                label="Unit",
-                value="mg/dL",
-                confidence=0.94,
-                method="PDF Extracted",
-                provenance=ExtractedFieldProvenance(page=1, region="Results table, row 3"),
-            ),
-            ExtractedField(
-                fieldKey="range",
-                label="Reference range",
-                value="70–99 mg/dL",
-                confidence=0.91,
-                method="PDF Extracted",
-                provenance=ExtractedFieldProvenance(page=1, region="Results table, row 3"),
-            ),
-            ExtractedField(
-                fieldKey="date",
-                label="Collection date",
-                value="18 Oct 2025",
-                confidence=0.67,
-                method="OCR Extracted",
-                provenance=ExtractedFieldProvenance(page=1, region="Header right region"),
-            ),
-            ExtractedField(
-                fieldKey="reportDate",
-                label="Report date",
-                value="19 Oct 2025",
-                confidence=0.95,
-                method="PDF Extracted",
-                provenance=ExtractedFieldProvenance(page=1, region="Header right"),
-            ),
-            ExtractedField(
-                fieldKey="lab",
-                label="Laboratory name",
-                value="Aster Diagnostics, Pune",
-                confidence=0.92,
-                method="PDF Extracted",
-                provenance=ExtractedFieldProvenance(page=1, region="Header left"),
-            ),
-            ExtractedField(
-                fieldKey="reportId",
-                label="Report ID",
-                value="LAB-8821",
-                confidence=0.72,
-                method="OCR Extracted",
-                provenance=ExtractedFieldProvenance(page=1, region="Header top-right"),
-            ),
-        ],
+        documentSummary=DocumentSummary(
+            pageCount=page_count,
+            detectedLaboratory=lab or "Not detected",
+            detectedReportId=report_id_value or "Not detected",
+            detectedDate=report_date or collection_date or "Not detected",
+            ocrQualityScore=0.0,
+        ),
+        extractedFields=extracted_fields,
     )
+
 
 @router.post("/{report_id}/confirm", response_model=ConfirmReportResponse)
 def confirm_report_records(
