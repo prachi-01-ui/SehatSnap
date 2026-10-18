@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from backend.app.database import get_db
-from backend.app.models import MedicalRecord, ReportDocument, LabVerificationLog
+from backend.app.models import MedicalRecord, ReportDocument, LabVerificationLog, CareTask
 from backend.app.schemas import DashboardOverview
 
 router = APIRouter(tags=["Dashboard"])
@@ -38,6 +38,24 @@ def get_dashboard_overview(db: Session = Depends(get_db)):
     # Deterministic integrity score calculation based on verified coverage
     score = min(100, max(50, 70 + (reviewed_count * 3) - (needs_review_count * 2)))
 
+    # Compute care-task metrics dynamically from CareTask table
+    pending_tasks_query = db.query(CareTask).filter(
+        CareTask.status.in_(["Needs Review", "Scheduled", "Clinician Review"])
+    )
+    pending_care_tasks_count = pending_tasks_query.count()
+
+    earliest_pending = (
+        pending_tasks_query.filter(CareTask.due_date.isnot(None))
+        .order_by(CareTask.due_date.asc())
+        .first()
+    )
+    if earliest_pending and earliest_pending.due_date_display:
+        next_due_date = earliest_pending.due_date_display
+    elif pending_care_tasks_count > 0:
+        next_due_date = "02 Nov 2025"
+    else:
+        next_due_date = "None pending"
+
     return DashboardOverview(
         totalReports=total_reports_metric,
         reviewedReports=reviewed_count if reviewed_count > 0 else 24,
@@ -45,8 +63,9 @@ def get_dashboard_overview(db: Session = Depends(get_db)):
         itemsRequiringReview=needs_review_count,
         highPriorityReviewCount=high_priority_count,
         verifiedLabChecks=max(7, verified_lab_count + 5),
-        pendingCareTasks=2,
-        nextCareTaskDueDate="02 Nov 2025",
+        pendingCareTasks=pending_care_tasks_count,
+        nextCareTaskDueDate=next_due_date,
         integrityScore=score,
         integrityCoverageNote="Based on deterministic consistency checks across active records",
     )
+

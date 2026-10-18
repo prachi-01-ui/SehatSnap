@@ -7,7 +7,8 @@ This module implements the **Laboratory and Medicine Verification** services for
 1. **Modular Service Layer**:
    - Laboratory Verification: [`backend/app/services/lab_verification.py`](file:///c:/Users/Krish/OneDrive/Desktop/HackShift/SehatSnap/backend/app/services/lab_verification.py)
    - Medicine Verification: [`backend/app/services/medicine_verification.py`](file:///c:/Users/Krish/OneDrive/Desktop/HackShift/SehatSnap/backend/app/services/medicine_verification.py)
-   - Transports & API endpoints: [`backend/app/api/verification.py`](file:///c:/Users/Krish/OneDrive/Desktop/HackShift/SehatSnap/backend/app/api/verification.py)
+   - Care Tasks & Follow-ups: [`backend/app/services/care_task_service.py`](file:///c:/Users/Krish/OneDrive/Desktop/HackShift/SehatSnap/backend/app/services/care_task_service.py)
+   - Transports & API endpoints: [`backend/app/api/verification.py`](file:///c:/Users/Krish/OneDrive/Desktop/HackShift/SehatSnap/backend/app/api/verification.py), [`backend/app/api/care_tasks.py`](file:///c:/Users/Krish/OneDrive/Desktop/HackShift/SehatSnap/backend/app/api/care_tasks.py)
 
 2. **Accreditation vs. Test-Scope Distinction (Laboratory)**:
    - **Accreditation Status**: Confirms whether the laboratory facility holds an active, unexpired, and unsuspended certificate in the directory.
@@ -18,13 +19,18 @@ This module implements the **Laboratory and Medicine Verification** services for
    - **Distinguishes Missing Evidence from Confirmed Mismatches**: Missing fields (e.g., release-type detail not legible or provided) trigger a professional review requirement (`status: "review"`, `verdict: "Possible Match — Human Review"`), while contradictory values trigger a confirmed `mismatch`.
    - **Clinical Safety Guarantee**: The service strictly verifies packaging label metadata against regulatory reference data. It **never** prescribes, recommends medicines, diagnoses medical conditions, or changes prescriptions.
 
-4. **Deterministic Verdict Taxonomy**:
+4. **Care-Task & Follow-Up Safety Principles**:
+   - **Follow-up Action Enforcement**: Tasks must strictly represent follow-up actions (repeating tests, scheduling consultations, requesting records, clinician review). Autonomous clinical diagnoses and unilateral prescription/dosage alterations are strictly rejected (HTTP 422).
+   - **Truthful Notification Disclosures**: The backend does not claim external SMS/Push/Email delivery when no active third-party integration is configured (`notificationStatus: "Not configured (local record only)"`).
+   - **Grounded Verification Linking**: Tasks can be generated directly from laboratory or medicine verification findings (`POST /api/v1/care-tasks/from-verification`), linking the follow-up directly to the audit log, report document, and medical record.
+
+5. **Deterministic Verdict Taxonomy**:
    - `verified`: Facility accreditation or medicine identity verified against source data.
    - `not_verified`: Facility, certificate, or product is not cataloged in the demonstration dataset.
    - `mismatch`: Explicit discrepancy detected (e.g. wrong active ingredient, conflicting strength, or unaccredited test scope).
    - `inconclusive`: Insufficient input provided (e.g. neither name nor certificate/ingredient provided) or simulated source failure.
 
-5. **Safety & Non-Fraud Guarantee**:
+6. **Safety & Non-Fraud Guarantee**:
    - Missing records in demonstration data are **never** treated as evidence of fraud, counterfeit, or falsification. Every negative or inconclusive response includes an explicit disclaimer stating that absence from the demo snapshot must not be interpreted as lack of real-world accreditation or regulatory approval.
 
 ---
@@ -97,6 +103,16 @@ This module implements the **Laboratory and Medicine Verification** services for
 - `GET /api/v1/verify/laboratory/demo-labs`: Lists synthetic NABL demo laboratories.
 - `GET /api/v1/verify/medicine/demo-medicines`: Lists synthetic CDSCO/SUGAM demo medicines.
 
+### 4. Care-Task & Follow-Up Endpoints
+- **List Care Tasks**: `GET /api/v1/care-tasks` (supports `status`, `priority`, `task_type`, `record_id`, `report_id`, `query`, and `sort` query parameters).
+- **Create Care Task**: `POST /api/v1/care-tasks` (enforces clinical safety validation, optional due dates, and entity linkage).
+- **Get Care Task Detail**: `GET /api/v1/care-tasks/{task_id}`
+- **Update Task Status**: `PATCH /api/v1/care-tasks/{task_id}/status` (transitions status between `Needs Review`, `Scheduled`, `Completed`, `Not Applicable`, `Clinician Review` and records audit events).
+- **Update Task Details**: `PATCH /api/v1/care-tasks/{task_id}` (updates title, description, due date, expected document, or priority with safety checks).
+- **Delete Care Task**: `DELETE /api/v1/care-tasks/{task_id}`
+- **Create from Verification Finding**: `POST /api/v1/care-tasks/from-verification` (generates structured follow-up consultation/scope tasks linked to `LabVerificationLog` or `MedicineVerificationLog`).
+- **Notification Integration Status**: `GET /api/v1/care-tasks/notifications/status` (truthfully discloses that external SMS/Push/Email delivery is not configured and reminders remain local).
+
 ---
 
 ## Setup & Testing Instructions
@@ -113,13 +129,16 @@ pip install "fastapi>=0.115.0" "pydantic>=2.0" "uvicorn[standard]" "sqlalchemy>=
 
 ### Running Tests
 ```bash
-# Run all backend unit and API tests (50 tests)
+# Run all backend unit and API tests (83 tests)
 .\.venv\Scripts\pytest.exe -v
 
-# Run only medicine verification tests (17 tests)
+# Run care-task and follow-up tests (16 tests)
+.\.venv\Scripts\pytest.exe -v backend/tests/test_care_tasks.py
+
+# Run medicine verification tests (17 tests)
 .\.venv\Scripts\pytest.exe -v backend/tests/test_medicine_verification.py
 
-# Run only lab verification tests (17 tests)
+# Run lab verification tests (17 tests)
 .\.venv\Scripts\pytest.exe -v backend/tests/test_lab_verification.py
 ```
 
@@ -128,3 +147,4 @@ pip install "fastapi>=0.115.0" "pydantic>=2.0" "uvicorn[standard]" "sqlalchemy>=
 .\.venv\Scripts\uvicorn.exe backend.app.main:app --reload --port 8000
 ```
 Interactive API documentation: `http://localhost:8000/docs`
+

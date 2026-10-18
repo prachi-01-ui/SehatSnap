@@ -139,3 +139,42 @@ class MedicineVerificationLog(Base):
     created_at = Column(DateTime, default=utc_now, nullable=False)
 
 
+class CareTask(Base):
+    """Documented care-plan follow-up task grounded in user-confirmed or clinical recommendations."""
+    __tablename__ = "care_tasks"
+
+    id = Column(String(64), primary_key=True)  # e.g., "TSK-1001"
+    patient_id = Column(String(64), nullable=False, default="AN-PATIENT-01")
+    report_document_id = Column(String(64), ForeignKey("report_documents.id", ondelete="SET NULL"), nullable=True)
+    medical_record_id = Column(String(64), ForeignKey("medical_records.id", ondelete="SET NULL"), nullable=True)
+    lab_verification_id = Column(String(64), ForeignKey("lab_verification_logs.id", ondelete="SET NULL"), nullable=True)
+    medicine_verification_id = Column(String(64), ForeignKey("medicine_verification_logs.id", ondelete="SET NULL"), nullable=True)
+
+    title = Column(String(255), nullable=False)  # e.g., "Repeat fasting glucose"
+    description = Column(String(512), nullable=True)
+    task_type = Column(String(64), nullable=False, default="diagnostic_follow_up")
+    expected = Column(String(255), nullable=True)  # e.g., "Fasting Plasma Glucose report"
+    due_date_display = Column(String(64), nullable=True)  # e.g., "02 Nov 2025"
+    due_date = Column(DateTime, nullable=True)
+    source = Column(String(255), nullable=False, default="User-confirmed care plan")
+    status = Column(String(64), nullable=False, default="Needs Review")  # "Needs Review" | "Scheduled" | "Completed" | "Not Applicable" | "Clinician Review"
+    priority = Column(String(32), nullable=False, default="normal")  # "high" | "normal" | "low"
+    reason = Column(String(512), nullable=True)
+
+    notification_status = Column(String(128), nullable=False, default="Not configured (local record only)")
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+
+    document = relationship("ReportDocument", foreign_keys=[report_document_id])
+    record = relationship("MedicalRecord", foreign_keys=[medical_record_id])
+    lab_verification = relationship("LabVerificationLog", foreign_keys=[lab_verification_id])
+    medicine_verification = relationship("MedicineVerificationLog", foreign_keys=[medicine_verification_id])
+
+    __table_args__ = (
+        Index("idx_care_tasks_patient_status", "patient_id", "status"),
+        Index("idx_care_tasks_due", "due_date"),
+    )
+
+
+

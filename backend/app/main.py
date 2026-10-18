@@ -8,6 +8,7 @@ from backend.app.api.dashboard import router as dashboard_router
 from backend.app.api.records import router as records_router
 from backend.app.api.reports import router as reports_router
 from backend.app.api.verification import router as verification_router
+from backend.app.api.care_tasks import router as care_tasks_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -43,6 +44,8 @@ app.include_router(dashboard_router, prefix="/api/v1")
 app.include_router(records_router, prefix="/api/v1")
 app.include_router(reports_router, prefix="/api/v1")
 app.include_router(verification_router, prefix="/api/v1")
+app.include_router(care_tasks_router, prefix="/api/v1")
+
 
 
 @app.get("/")
