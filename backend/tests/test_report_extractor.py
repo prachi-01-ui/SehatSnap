@@ -35,7 +35,7 @@ def test_scanned_pdf_uses_ocr():
             return_value=mock_reader,
         ),
         patch(
-            "backend.app.services.report_extractor.fitz.open"
+            "backend.app.services.report_extractor.pymupdf.open"
         ) as mock_fitz_open,
         patch(
             "backend.app.services.report_extractor.Image.open"
@@ -73,7 +73,7 @@ def test_pdf_without_extractable_text_or_ocr_raises_error():
             return_value=mock_reader,
         ),
         patch(
-            "backend.app.services.report_extractor.fitz.open"
+            "backend.app.services.report_extractor.pymupdf.open"
         ) as mock_fitz_open,
         patch(
             "backend.app.services.report_extractor.pytesseract.image_to_string",
