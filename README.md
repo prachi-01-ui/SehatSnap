@@ -1,4 +1,4 @@
-# SehatSnap Integrity 🛡️🩺
+# SehatSnap🛡️🩺
 
 **SehatSnap Integrity** is a full-stack health data workspace designed to verify medical records, laboratory accreditation, and pharmaceutical product details while preserving source provenance and auditing document integrity.
 
