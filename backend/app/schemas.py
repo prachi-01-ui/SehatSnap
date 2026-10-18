@@ -106,3 +106,50 @@ class DashboardOverview(BaseModel):
     nextCareTaskDueDate: str
     integrityScore: int
     integrityCoverageNote: str
+
+# --- Laboratory Verification ---
+class LabVerificationRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    laboratoryName: Optional[str] = Field(None, alias="lab", description="Laboratory name visible on report")
+    city: Optional[str] = Field(None, description="City or facility location")
+    certificateNumber: Optional[str] = Field(None, alias="certificate", description="Accreditation certificate or registration number")
+    discipline: Optional[str] = Field(None, description="Clinical discipline (e.g. Clinical Biochemistry, Hematology)")
+    testName: Optional[str] = Field(None, alias="test", description="Specific test name to verify scope for")
+    recordId: Optional[str] = Field(None, description="Optional associated MedicalRecord ID")
+    reportId: Optional[str] = Field(None, description="Optional associated ReportDocument ID")
+    simulateSourceFailure: Optional[bool] = Field(False, description="Diagnostic flag to simulate external source lookup failure")
+
+class LabCheckItem(BaseModel):
+    item: str
+    details: str
+    status: str  # "verified" | "review" | "warning" | "inconclusive"
+
+class VerifiedLabDetails(BaseModel):
+    name: str
+    location: str
+    certificateNumber: str
+    validThrough: str
+    accreditationBody: str = "NABL"
+    disciplines: List[str] = Field(default_factory=list)
+    scopeTests: List[str] = Field(default_factory=list)
+
+class VerificationSourceReference(BaseModel):
+    authority: str
+    retrievedAt: str
+    isDemonstrationDataset: bool = True
+    sourceNotes: Optional[str] = None
+
+class LabVerificationResponse(BaseModel):
+    matchConfidence: float
+    verdict: str
+    status: str  # "verified" | "not_verified" | "mismatch" | "inconclusive"
+    accreditationStatus: str  # "verified" | "expired" | "suspended" | "not_verified" | "inconclusive"
+    testScopeStatus: str      # "verified" | "not_verified" | "unspecified" | "mismatch" | "inconclusive"
+    laboratory: Optional[VerifiedLabDetails] = None
+    checks: List[LabCheckItem]
+    sourceReference: VerificationSourceReference
+    evidenceLimitations: str
+    timestamp: str
+    auditEventId: Optional[str] = None
+
