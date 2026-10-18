@@ -1,33 +1,37 @@
-# SehatSnap Backend - Laboratory Verification Service (Member 4)
+# SehatSnap Backend - Clinical Verification Services
 
-This service implements the **Laboratory Verification and Integrity Audit** component for the SehatSnap clinical integrity platform.
+This module implements the **Laboratory and Medicine Verification** services for the SehatSnap clinical integrity platform.
 
 ## Architecture & Core Principles
 
-1. **Modular Service Layer** (`backend/app/services/lab_verification.py`):
-   - Separates clinical verification logic from transport/HTTP routing.
-   - Evaluates laboratory identity and active accreditation independently from specific test-scope authorization.
-   - Uses a clearly labelled, synthetic demonstration dataset modeled on ISO 15189 / NABL directory records.
+1. **Modular Service Layer**:
+   - Laboratory Verification: [`backend/app/services/lab_verification.py`](file:///c:/Users/Krish/OneDrive/Desktop/HackShift/SehatSnap/backend/app/services/lab_verification.py)
+   - Medicine Verification: [`backend/app/services/medicine_verification.py`](file:///c:/Users/Krish/OneDrive/Desktop/HackShift/SehatSnap/backend/app/services/medicine_verification.py)
+   - Transports & API endpoints: [`backend/app/api/verification.py`](file:///c:/Users/Krish/OneDrive/Desktop/HackShift/SehatSnap/backend/app/api/verification.py)
 
-2. **Accreditation vs. Test-Scope Distinction**:
+2. **Accreditation vs. Test-Scope Distinction (Laboratory)**:
    - **Accreditation Status**: Confirms whether the laboratory facility holds an active, unexpired, and unsuspended certificate in the directory.
-   - **Test-Scope Verification**: Evaluates whether the requested clinical test (or discipline) falls within the officially accredited testing disciplines cataloged for that facility.
-   - *Example*: A facility may hold active accreditation for Clinical Biochemistry, but requested Histopathology testing will be reported as out-of-scope (`mismatch` / `testScopeStatus="not_verified"`).
+   - **Test-Scope Verification**: Evaluates whether the requested clinical test or discipline falls within the officially accredited testing disciplines cataloged for that facility.
 
-3. **Deterministic Verdict Taxonomy**:
-   - `verified`: Facility accreditation confirmed active and requested test is within verified scope (or scope unspecified).
-   - `not_verified`: Facility or certificate is not cataloged in the demonstration snapshot, or accreditation is expired/suspended.
-   - `mismatch`: Discrepancy detected (e.g. certificate number registered to another entity, site location mismatch, or requested test is explicitly unaccredited).
-   - `inconclusive`: Insufficient identification provided (e.g., neither facility name nor certificate provided) or simulated source failure.
+3. **Label Metadata vs. Regulatory Source Comparison (Medicine)**:
+   - Compares medicine brand name, active pharmaceutical ingredient (API), strength, dosage form/formulation, and manufacturer against an explicitly identified synthetic demo dataset modeled on CDSCO/SUGAM.
+   - **Distinguishes Missing Evidence from Confirmed Mismatches**: Missing fields (e.g., release-type detail not legible or provided) trigger a professional review requirement (`status: "review"`, `verdict: "Possible Match — Human Review"`), while contradictory values trigger a confirmed `mismatch`.
+   - **Clinical Safety Guarantee**: The service strictly verifies packaging label metadata against regulatory reference data. It **never** prescribes, recommends medicines, diagnoses medical conditions, or changes prescriptions.
 
-4. **Safety & Non-Fraud Guarantee**:
-   - Missing records in demonstration data are **never** treated as evidence of fraud or falsification. Every negative or inconclusive response includes an explicit disclaimer stating that absence from the demo snapshot must not be interpreted as lack of real-world accreditation.
+4. **Deterministic Verdict Taxonomy**:
+   - `verified`: Facility accreditation or medicine identity verified against source data.
+   - `not_verified`: Facility, certificate, or product is not cataloged in the demonstration dataset.
+   - `mismatch`: Explicit discrepancy detected (e.g. wrong active ingredient, conflicting strength, or unaccredited test scope).
+   - `inconclusive`: Insufficient input provided (e.g. neither name nor certificate/ingredient provided) or simulated source failure.
+
+5. **Safety & Non-Fraud Guarantee**:
+   - Missing records in demonstration data are **never** treated as evidence of fraud, counterfeit, or falsification. Every negative or inconclusive response includes an explicit disclaimer stating that absence from the demo snapshot must not be interpreted as lack of real-world accreditation or regulatory approval.
 
 ---
 
 ## API Endpoints
 
-### 1. Verify Laboratory Accreditation & Scope
+### 1. Laboratory Accreditation Verification
 - **Route**: `POST /api/v1/verify/laboratory`
 - **Request Body**:
   ```json
@@ -40,48 +44,58 @@ This service implements the **Laboratory Verification and Integrity Audit** comp
     "recordId": "SR-1048"
   }
   ```
-  *Note*: Accepts field aliases `lab`, `certificate`, and `test` for direct frontend form compatibility.
+- **Response (`200 OK`)**:
+  Returns `matchConfidence`, `verdict`, `status`, `accreditationStatus`, `testScopeStatus`, `laboratory` details, structured `checks`, `sourceReference`, and `evidenceLimitations`.
 
+### 2. Medicine Regulatory Verification
+- **Route**: `POST /api/v1/verify/medicine`
+- **Request Body**:
+  ```json
+  {
+    "brandName": "Glycomet 500",
+    "activeIngredient": "Metformin Hydrochloride",
+    "strength": "500 mg",
+    "dosageForm": "Tablet",
+    "manufacturer": "USV Private Limited",
+    "route": "Oral"
+  }
+  ```
+  *Note*: Accepts frontend form field aliases `brand`, `ingredient`, `form`.
 - **Response (`200 OK`)**:
   ```json
   {
-    "matchConfidence": 0.96,
-    "verdict": "Verified Against Official Source",
+    "matchConfidence": 0.88,
+    "verdict": "Possible Match — Human Review",
     "status": "verified",
-    "accreditationStatus": "verified",
-    "testScopeStatus": "verified",
-    "laboratory": {
-      "name": "Metropolis Healthcare Ltd.",
-      "location": "Pune, Maharashtra",
-      "certificateNumber": "MC-2104",
-      "validThrough": "2026-03-31",
-      "accreditationBody": "NABL",
-      "disciplines": ["Clinical Biochemistry", "Clinical Pathology", "Hematology", "Microbiology & Infectious Disease Serology"],
-      "scopeTests": ["Fasting Plasma Glucose", "Complete Blood Count", "Lipid Profile", "..."]
+    "reviewBanner": "Formulation detail requires review: The checked source lists an immediate-release tablet; the uploaded label image does not clearly show release type. Verify with a registered pharmacist or clinician.",
+    "product": {
+      "brand": "Glycomet 500",
+      "standardizedTitle": "Metformin Hydrochloride Tablets IP",
+      "activeIngredient": "Metformin Hydrochloride",
+      "strength": "500 mg",
+      "dosageForm": "Immediate-release uncoated tablet IP",
+      "manufacturer": "USV Private Limited"
     },
     "checks": [
-      { "item": "Laboratory identity", "details": "Exact name match with 'Metropolis Healthcare Ltd.'", "status": "verified" },
-      { "item": "Location", "details": "Pune location matched", "status": "verified" },
-      { "item": "Accreditation status", "details": "Active in demo dataset (NABL)", "status": "verified" },
-      { "item": "Certificate validity", "details": "Valid through 2026-03-31", "status": "verified" },
-      { "item": "Requested scope", "details": "'Fasting Plasma Glucose' confirmed within accredited testing scope", "status": "verified" },
-      { "item": "Outstanding questions", "details": "Collection centre relationship and peripheral phlebotomy site not checked", "status": "review" }
+      { "item": "Active ingredient", "details": "Metformin Hydrochloride · match", "status": "verified" },
+      { "item": "Strength", "details": "500 mg · match", "status": "verified" },
+      { "item": "Dosage form", "details": "Tablet · partial detail", "status": "review" },
+      { "item": "Manufacturer", "details": "USV Private Limited · match", "status": "verified" },
+      { "item": "Regulatory information", "details": "Label record available in demo", "status": "info" }
     ],
     "sourceReference": {
-      "authority": "NABL directory demonstration snapshot",
-      "retrievedAt": "2025-10-20T10:14:00+05:30",
-      "isDemonstrationDataset": true,
-      "sourceNotes": "Synthetic demonstration dataset modeled on ISO 15189 / NABL directory records. Never queries live portals."
+      "authority": "CDSCO/SUGAM demonstration dataset",
+      "sourceDate": "2025-08-06",
+      "retrievedAt": "2025-10-20",
+      "isDemonstrationDataset": true
     },
-    "evidenceLimitations": "Matched against synthetic demonstration dataset with 96% confidence...",
-    "timestamp": "2026-10-18T04:55:00Z",
-    "auditEventId": "EVT-8A12"
+    "disclaimer": "SehatSnap does not prescribe, recommend medicines, diagnose conditions, or alter prescriptions..."
   }
   ```
 
-### 2. List Demo Laboratories
-- **Route**: `GET /api/v1/verify/laboratory/demo-labs`
-- Returns all synthetic laboratories currently configured in the demonstration registry.
+### 3. Catalog Inspection Endpoints
+- `GET /api/v1/verify/laboratory/demo-labs`: Lists synthetic NABL demo laboratories.
+- `GET /api/v1/verify/medicine/demo-medicines`: Lists synthetic CDSCO/SUGAM demo medicines.
 
 ---
 
@@ -99,10 +113,13 @@ pip install "fastapi>=0.115.0" "pydantic>=2.0" "uvicorn[standard]" "sqlalchemy>=
 
 ### Running Tests
 ```bash
-# Run all backend unit and API tests
+# Run all backend unit and API tests (50 tests)
 .\.venv\Scripts\pytest.exe -v
 
-# Run only the lab verification tests
+# Run only medicine verification tests (17 tests)
+.\.venv\Scripts\pytest.exe -v backend/tests/test_medicine_verification.py
+
+# Run only lab verification tests (17 tests)
 .\.venv\Scripts\pytest.exe -v backend/tests/test_lab_verification.py
 ```
 
@@ -110,4 +127,4 @@ pip install "fastapi>=0.115.0" "pydantic>=2.0" "uvicorn[standard]" "sqlalchemy>=
 ```bash
 .\.venv\Scripts\uvicorn.exe backend.app.main:app --reload --port 8000
 ```
-API Documentation will be accessible at: `http://localhost:8000/docs`
+Interactive API documentation: `http://localhost:8000/docs`

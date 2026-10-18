@@ -153,3 +153,63 @@ class LabVerificationResponse(BaseModel):
     timestamp: str
     auditEventId: Optional[str] = None
 
+
+# --- Medicine Verification ---
+class MedicineVerificationRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    brandName: Optional[str] = Field(None, alias="brand", description="Brand or product name on packaging")
+    activeIngredient: Optional[str] = Field(None, alias="ingredient", description="Active pharmaceutical ingredient (API)")
+    strength: Optional[str] = Field(None, description="Strength specification (e.g. 500 mg, 625 mg)")
+    dosageForm: Optional[str] = Field(None, alias="form", description="Dosage form (e.g. Tablet, Capsule, Syrup)")
+    manufacturer: Optional[str] = Field(None, description="Manufacturing pharmaceutical company")
+    route: Optional[str] = Field(None, description="Route of administration (e.g. Oral, Topical)")
+    recordId: Optional[str] = Field(None, description="Optional associated MedicalRecord ID")
+    reportId: Optional[str] = Field(None, description="Optional associated ReportDocument ID")
+    simulateSourceFailure: Optional[bool] = Field(False, description="Diagnostic flag to simulate external regulatory lookup failure")
+
+
+class MedicineCheckItem(BaseModel):
+    item: str
+    details: str
+    status: str  # "verified" | "review" | "warning" | "info" | "inconclusive"
+
+
+class VerifiedMedicineProduct(BaseModel):
+    brand: str
+    standardizedTitle: str
+    activeIngredient: Optional[str] = None
+    strength: Optional[str] = None
+    dosageForm: Optional[str] = None
+    manufacturer: Optional[str] = None
+    route: Optional[str] = None
+    regulatoryStatus: str = "Cataloged in demo SUGAM database"
+    formulationNotes: Optional[str] = None
+
+
+class MedicineSourceReference(BaseModel):
+    authority: str = "CDSCO/SUGAM demonstration dataset"
+    sourceDate: str
+    retrievedAt: str
+    isDemonstrationDataset: bool = True
+    sourceNotes: Optional[str] = None
+
+
+class MedicineVerificationResponse(BaseModel):
+    matchConfidence: float
+    verdict: str
+    status: str  # "verified" | "not_verified" | "mismatch" | "inconclusive"
+    reviewBanner: Optional[str] = None
+    product: Optional[VerifiedMedicineProduct] = None
+    checks: List[MedicineCheckItem]
+    sourceReference: MedicineSourceReference
+    evidenceLimitations: str
+    timestamp: str
+    auditEventId: Optional[str] = None
+    disclaimer: str = (
+        "SehatSnap does not prescribe, recommend medicines, diagnose conditions, or alter prescriptions. "
+        "This service verifies product label metadata against demonstration regulatory records only. "
+        "Always consult a registered medical practitioner or licensed pharmacist."
+    )
+
+

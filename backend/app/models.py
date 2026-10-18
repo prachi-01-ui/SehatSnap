@@ -111,3 +111,31 @@ class LabVerificationLog(Base):
     is_demo_source = Column(String(8), nullable=False, default="true")
     created_at = Column(DateTime, default=utc_now, nullable=False)
 
+
+class MedicineVerificationLog(Base):
+    """Audit log for medicine packaging and regulatory verification checks."""
+    __tablename__ = "medicine_verification_logs"
+
+    id = Column(String(64), primary_key=True)  # e.g., "MED-A102"
+    patient_id = Column(String(64), nullable=False, default="AN-PATIENT-01")
+    report_document_id = Column(String(64), ForeignKey("report_documents.id", ondelete="SET NULL"), nullable=True)
+    medical_record_id = Column(String(64), ForeignKey("medical_records.id", ondelete="SET NULL"), nullable=True)
+
+    queried_brand = Column(String(255), nullable=True)
+    queried_ingredient = Column(String(255), nullable=True)
+    queried_strength = Column(String(128), nullable=True)
+    queried_dosage_form = Column(String(128), nullable=True)
+    queried_manufacturer = Column(String(255), nullable=True)
+
+    matched_brand = Column(String(255), nullable=True)
+    matched_title = Column(String(255), nullable=True)
+    match_confidence = Column(Float, nullable=False, default=0.0)
+
+    overall_status = Column(String(32), nullable=False)  # verified | not_verified | mismatch | inconclusive
+    verdict = Column(String(255), nullable=False)
+
+    source_authority = Column(String(128), nullable=False, default="CDSCO/SUGAM demonstration dataset")
+    is_demo_source = Column(String(8), nullable=False, default="true")
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+
+
