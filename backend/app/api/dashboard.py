@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from backend.app.database import get_db
-from backend.app.models import MedicalRecord, ReportDocument
+from backend.app.models import MedicalRecord, ReportDocument, LabVerificationLog
 from backend.app.schemas import DashboardOverview
 
 router = APIRouter(tags=["Dashboard"])
@@ -23,9 +23,14 @@ def get_dashboard_overview(db: Session = Depends(get_db)):
         MedicalRecord.status == "Needs review"
     ).count()
 
-    verified_lab_count = db.query(MedicalRecord).filter(
+    verified_records_count = db.query(MedicalRecord).filter(
         MedicalRecord.status == "Verified"
     ).count()
+    verified_logs_count = db.query(LabVerificationLog).filter(
+        LabVerificationLog.overall_status == "verified"
+    ).count()
+    verified_lab_count = verified_records_count + verified_logs_count
+
 
     reviewed_percentage = int((reviewed_count / total_records * 100)) if total_records > 0 else 86
     high_priority_count = 1 if needs_review_count > 0 else 0
