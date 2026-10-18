@@ -1,8 +1,9 @@
 from sqlalchemy.orm import Session
-from backend.app.models import MedicalRecord, AuditEvent, ReportDocument
+from backend.app.models import MedicalRecord, AuditEvent, ReportDocument, CareTask
 import datetime
 
 INITIAL_RECORDS = [
+
     {
         "id": "SR-1048",
         "name": "Fasting Plasma Glucose",
@@ -118,6 +119,61 @@ INITIAL_AUDIT_EVENTS = [
     },
 ]
 
+INITIAL_CARE_TASKS = [
+    {
+        "id": "TSK-1001",
+        "patient_id": "AN-PATIENT-01",
+        "title": "Repeat fasting glucose",
+        "description": "Routine diagnostic re-test follow-up to evaluate fasting plasma glucose consistency.",
+        "task_type": "diagnostic_follow_up",
+        "expected": "Fasting Plasma Glucose report",
+        "due_date_display": "02 Nov 2025",
+        "due_date": datetime.datetime(2025, 11, 2, tzinfo=datetime.timezone.utc),
+        "source": "Dr. Mehta visit note · 18 Oct",
+        "status": "Needs Review",
+        "priority": "high",
+        "reason": "No matching test record found in the available history.",
+        "medical_record_id": "SR-1048",
+        "report_document_id": None,
+        "notification_status": "Not configured (local record only)",
+    },
+    {
+        "id": "TSK-1002",
+        "patient_id": "AN-PATIENT-01",
+        "title": "Review lipid profile",
+        "description": "Specialist consultation follow-up to discuss lipid panel trajectory.",
+        "task_type": "specialist_consultation",
+        "expected": "Consultation note",
+        "due_date_display": "18 Nov 2025",
+        "due_date": datetime.datetime(2025, 11, 18, tzinfo=datetime.timezone.utc),
+        "source": "Discharge plan · 20 Sep",
+        "status": "Scheduled",
+        "priority": "normal",
+        "reason": "Appointment is recorded; no completion document is available yet.",
+        "medical_record_id": "SR-1022",
+        "report_document_id": None,
+        "notification_status": "Not configured (local record only)",
+    },
+    {
+        "id": "TSK-1003",
+        "patient_id": "AN-PATIENT-01",
+        "title": "Share CBC with consultant",
+        "description": "Provide complete blood count results to clinical consultant ahead of scheduled review.",
+        "task_type": "record_request",
+        "expected": "Shared consultation summary",
+        "due_date_display": "22 Oct 2025",
+        "due_date": datetime.datetime(2025, 10, 22, tzinfo=datetime.timezone.utc),
+        "source": "User-confirmed plan · 08 Sep",
+        "status": "Completed",
+        "priority": "normal",
+        "reason": "Completion was confirmed by the user.",
+        "medical_record_id": "SR-1043",
+        "report_document_id": None,
+        "notification_status": "Not configured (local record only)",
+        "completed_at": datetime.datetime(2025, 10, 22, 11, 30, tzinfo=datetime.timezone.utc),
+    },
+]
+
 def seed_database(db: Session) -> None:
     """Seeds synthetic demo data if tables are empty."""
     existing_records = db.query(MedicalRecord).count()
@@ -130,4 +186,10 @@ def seed_database(db: Session) -> None:
         for audit in INITIAL_AUDIT_EVENTS:
             db.add(AuditEvent(**audit))
 
+    existing_tasks = db.query(CareTask).count()
+    if existing_tasks == 0:
+        for task in INITIAL_CARE_TASKS:
+            db.add(CareTask(**task))
+
     db.commit()
+

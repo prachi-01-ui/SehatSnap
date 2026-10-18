@@ -213,3 +213,92 @@ class MedicineVerificationResponse(BaseModel):
     )
 
 
+# --- Care Tasks & Follow-ups ---
+class CareTaskCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    title: str = Field(..., min_length=2, max_length=255, description="Follow-up task title")
+    description: Optional[str] = Field(None, max_length=1000, description="Optional clinical follow-up details")
+    taskType: Optional[str] = Field("diagnostic_follow_up", alias="task_type", description="Follow-up type: diagnostic_follow_up, specialist_consultation, record_request, verification_follow_up, general")
+    expected: Optional[str] = Field(None, max_length=255, description="Expected clinical document or test result")
+    due: Optional[str] = Field(None, description="Optional due date (e.g. '02 Nov 2025' or '2025-11-02')")
+    source: Optional[str] = Field("User-confirmed care plan", max_length=255, description="Source of care-plan recommendation")
+    status: Optional[str] = Field("Needs Review", description="Initial status ('Needs Review', 'Scheduled', 'Completed', etc.)")
+    priority: Optional[str] = Field("normal", description="Priority level ('high', 'normal', 'low')")
+    reason: Optional[str] = Field(None, max_length=512, description="Reason for follow-up")
+
+    # Optional linkages
+    reportId: Optional[str] = Field(None, alias="report_id", description="Linked ReportDocument ID")
+    recordId: Optional[str] = Field(None, alias="record_id", description="Linked MedicalRecord ID")
+    labVerificationId: Optional[str] = Field(None, alias="lab_verification_id", description="Linked LabVerificationLog ID")
+    medicineVerificationId: Optional[str] = Field(None, alias="medicine_verification_id", description="Linked MedicineVerificationLog ID")
+
+
+class CareTaskStatusUpdate(BaseModel):
+    status: str = Field(..., description="Target status ('Needs Review', 'Scheduled', 'Completed', 'Not Applicable', 'Clinician Review')")
+    reason: Optional[str] = Field(None, max_length=512, description="Optional rationale for status update")
+
+
+class CareTaskUpdate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    title: Optional[str] = Field(None, min_length=2, max_length=255)
+    description: Optional[str] = Field(None, max_length=1000)
+    taskType: Optional[str] = Field(None, alias="task_type")
+    expected: Optional[str] = Field(None, max_length=255)
+    due: Optional[str] = None
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    reason: Optional[str] = Field(None, max_length=512)
+
+
+class CareTaskLinkedEntities(BaseModel):
+    reportId: Optional[str] = None
+    recordId: Optional[str] = None
+    labVerificationId: Optional[str] = None
+    medicineVerificationId: Optional[str] = None
+    reportFilename: Optional[str] = None
+    recordName: Optional[str] = None
+
+
+class CareTaskResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: str
+    patientId: str
+    title: str
+    description: Optional[str] = None
+    taskType: str
+    expected: Optional[str] = None
+    due: Optional[str] = None
+    dueDateIso: Optional[str] = None
+    source: str
+    status: str
+    priority: str
+    reason: Optional[str] = None
+    linkedEntities: CareTaskLinkedEntities
+    notificationStatus: str
+    notificationNotice: str
+    createdAt: str
+    updatedAt: str
+    completedAt: Optional[str] = None
+
+
+class CareTaskListResponse(BaseModel):
+    tasks: List[CareTaskResponse]
+    total: int
+    pendingCount: int
+    completedCount: int
+
+
+class TaskFromVerificationRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    verificationLogId: str = Field(..., description="Identifier of the laboratory or medicine verification log")
+    verificationType: str = Field(..., description="'laboratory' or 'medicine'")
+    due: Optional[str] = Field(None, description="Optional due date for follow-up")
+    priority: Optional[str] = Field("high", description="Priority level ('high', 'normal', 'low')")
+    customNotes: Optional[str] = Field(None, max_length=512, description="Optional supplementary follow-up instructions")
+
+
+
